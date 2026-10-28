@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D キューブ 透視投影 Canvas</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-950 text-white min-h-screen">
+<div class="max-w-4xl mx-auto p-4">
+  <h1 class="text-2xl font-bold text-center mb-2 text-cyan-300">📦 3D 透視投影 Canvas</h1>
+  <p class="text-center text-gray-400 mb-4 text-sm">3D Perspective Projection — ドラッグで自由回転</p>
+
+  <div class="flex gap-4">
+    <div class="flex-1">
+      <canvas id="mainCanvas" width="560" height="560"
+        class="rounded-xl border border-cyan-900 w-full cursor-grab"
+        style="max-width:560px;background:#020817"></canvas>
+    </div>
+
+    <div class="w-60 space-y-3">
+      <!-- Primitive -->
+      <div class="bg-gray-900 rounded-xl p-3 border border-gray-800">
+        <label class="block text-xs font-bold text-cyan-300 mb-2">プリミティブ</label>
+        <div class="grid grid-cols-3 gap-1">
+          <button data-shape="cube" aria-label="立方体" class="shape-btn text-xs py-2 rounded bg-cyan-900 hover:bg-cyan-800 transition">立方体</button>
+          <button data-shape="pyramid" aria-label="四角錐" class="shape-btn text-xs py-2 rounded bg-gray-700 hover:bg-gray-600 transition">四角錐</button>
+          <button data-shape="octahedron" aria-label="八面体" class="shape-btn text-xs py-2 rounded bg-gray-700 hover:bg-gray-600 transition">八面体</button>
+        </div>
+      </div>
+
+      <!-- Rotation Sliders -->
+      <div class="bg-gray-900 rounded-xl p-3 border border-gray-800 space-y-2">
+        <label class="block text-xs font-bold text-cyan-300">回転 (度)</label>
+        <div>
+          <label class="text-xs text-red-400 block" for="sliderRX">X軸: <span id="valRX">0</span>°</label>
+          <input type="range" id="sliderRX" aria-label="X軸回転" min="-180" max="180" value="0" class="w-full accent-red-500">
+        </div>
+        <div>
+          <label class="text-xs text-green-400 block" for="sliderRY">Y軸: <span id="valRY">0</span>°</label>
+          <input type="range" id="sliderRY" aria-label="Y軸回転" min="-180" max="180" value="0" class="w-full accent-green-500">
+        </div>
+        <div>
+          <label class="text-xs text-blue-400 block" for="sliderRZ">Z軸: <span id="valRZ">0</span>°</label>
+          <input type="range" id="sliderRZ" aria-label="Z軸回転" min="-180" max="180" value="0" class="w-full accent-blue-500">
+        </div>
+      </div>
+
+      <!-- Camera -->
+      <div class="bg-gray-900 rounded-xl p-3 border border-gray-800 space-y-2">
+        <label class="block text-xs font-bold text-cyan-300">カメラ</label>
+        <div>
+          <label class="text-xs text-gray-300 block" for="sliderFOV">FOV: <span id="valFOV">60</span>°</label>
+          <input type="range" id="sliderFOV" aria-label="視野角" min="20" max="120" value="60" class="w-full accent-cyan-500">
+        </div>
+        <div>
+          <label class="text-xs text-gray-300 block" for="sliderDist">カメラ距離: <span id="valDist">4</span></label>
+          <input type="range" id="sliderDist" aria-label="カメラ距離" min="2" max="10" step="0.1" value="4" class="w-full accent-cyan-500">
+        </div>
+      </div>
+
+      <!-- Options -->
+      <div class="bg-gray-900 rounded-xl p-3 border border-gray-800 space-y-2">
+        <label class="block text-xs font-bold text-cyan-300">オプション</label>
+        <label class="flex items-center gap-2 text-xs">
+          <input type="checkbox" id="showLabels" aria-label="頂点ラベルを表示" class="accent-cyan-500">
+          頂点ラベル
+        </label>
+        <label class="flex items-center gap-2 text-xs">
+          <input type="checkbox" id="showFaces" aria-label="面を表示" checked class="accent-cyan-500">
+          面 (半透明)
+        </label>
+        <label class="flex items-center gap-2 text-xs">
+          <input type="checkbox" id="showFog" aria-label="フォグ効果を有効" checked class="accent-cyan-500">
+          フォグ効果
+        </label>
+        <label class="flex items-center gap-2 text-xs">
+          <input type="checkbox" id="autoRotate" aria-label="自動回転" class="accent-cyan-500">
+          自動回転
+        </label>
+        <label class="block text-xs text-gray-300 mt-1" for="edgeColor">エッジ色:</label>
+        <select id="edgeColor" aria-label="エッジの色を選択" class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs">
+          <option value="cyan">シアン</option>
+          <option value="white">ホワイト</option>
+          <option value="gold">ゴールド</option>
+          <option value="neon">ネオン緑</option>
+        </select>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+const canvas = document.getElementById('mainCanvas');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+let rotX = 0.4, rotY = 0.6, rotZ = 0;
+let fov = 60, camDist = 4;
+let isDragging = false, lastMX = 0, lastMY = 0;
+let shape = 'cube';
+let autoRotate = false;
+let animId = null;
+
+const EDGE_COLORS = {
+  cyan: '#22d3ee', white: '#f8fafc', gold: '#fbbf24', neon: '#4ade80'
+};
+
+const SHAPES = {
+  cube: {
+    vertices: [
+      [-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],
+      [-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]
+    ],
+    edges: [
+      [0,1],[1,2],[2,3],[3,0],
+      [4,5],[5,6],[6,7],[7,4],
+      [0,4],[1,5],[2,6],[3,7]
+    ],
+    faces: [
+      [0,1,2,3],[4,5,6,7],[0,1,5,4],[2,3,7,6],[1,2,6,5],[0,3,7,4]
+    ],
+    labels: ['0','1','2','3','4','5','6','7']
+  },
+  pyramid: {
+    vertices: [[-1,-1,-1],[1,-1,-1],[1,-1,1],[-1,-1,1],[0,1.5,0]],
+    edges: [[0,1],[1,2],[2,3],[3,0],[0,4],[1,4],[2,4],[3,4]],
+    faces: [[0,1,2,3],[0,1,4],[1,2,4],[2,3,4],[3,0,4]],
+    labels: ['0','1','2','3','頂']
+  },
+  octahedron: {
+    vertices: [[0,1.5,0],[1.5,0,0],[0,0,1.5],[-1.5,0,0],[0,0,-1.5],[0,-1.5,0]],
+    edges: [[0,1],[0,2],[0,3],[0,4],[5,1],[5,2],[5,3],[5,4],[1,2],[2,3],[3,4],[4,1]],
+    faces: [[0,1,2],[0,2,3],[0,3,4],[0,4,1],[5,1,2],[5,2,3],[5,3,4],[5,4,1]],
+    labels: ['上','右','前','左','後','下']
+  }
+};
+
+function matMul3(m, v) {
+  return [
+    m[0]*v[0]+m[1]*v[1]+m[2]*v[2],
+    m[3]*v[0]+m[4]*v[1]+m[5]*v[2],
+    m[6]*v[0]+m[7]*v[1]+m[8]*v[2]
+  ];
+}
+
+function rotateX(v, a) {
+  const c = Math.cos(a), s = Math.sin(a);
+  return matMul3([1,0,0,0,c,-s,0,s,c], v);
+}
+function rotateY(v, a) {
+  const c = Math.cos(a), s = Math.sin(a);
+  return matMul3([c,0,s,0,1,0,-s,0,c], v);
+}
+function rotateZ(v, a) {
+  const c = Math.cos(a), s = Math.sin(a);
+  return matMul3([c,-s,0,s,c,0,0,0,1], v);
+}
+
+function project3D(v) {
+  const fovRad = fov * Math.PI / 180;
+  const f = 1 / Math.tan(fovRad / 2);
+  const cz = camDist;
+  // Move camera back
+  const vz = cz + v[2];
+  if (vz <= 0.01) return null;
+  const s = f * W / 2 / vz;
+  return [v[0] * s + W / 2, -v[1] * s + H / 2, vz];
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#020817';
+  ctx.fillRect(0, 0, W, H);
+
+  const shapeData = SHAPES[shape];
+  const showFog = document.getElementById('showFog').checked;
+  const showLabels = document.getElementById('showLabels').checked;
+  const showFaces = document.getElementById('showFaces').checked;
+  const edgeColorKey = document.getElementById('edgeColor').value;
+  const edgeCol = EDGE_COLORS[edgeColorKey];
+
+  // Transform vertices
+  const transformed = shapeData.vertices.map(v => {
+    let p = [...v];
+    p = rotateX(p, rotX);
+    p = rotateY(p, rotY);
+    p = rotateZ(p, rotZ);
+    return p;
+  });
+
+  const projected = transformed.map(v => project3D(v));
+
+  // Faces (painter's algorithm)
+  if (showFaces) {
+    const faceDepths = shapeData.faces.map((face, fi) => {
+      const avgZ = face.reduce((s, vi) => s + transformed[vi][2], 0) / face.length;
+      return { face, avgZ, fi };
+    });
+    faceDepths.sort((a, b) => b.avgZ - a.avgZ);
+
+    faceDepths.forEach(({ face }) => {
+      const pts = face.map(vi => projected[vi]).filter(p => p !== null);
+      if (pts.length < 3) return;
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      pts.slice(1).forEach(p => ctx.lineTo(p[0], p[1]));
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(56,189,248,0.07)';
+      ctx.fill();
+    });
+  }
+
+  // Edges
+  shapeData.edges.forEach(([ai, bi]) => {
+    const a = projected[ai], b = projected[bi];
+    if (!a || !b) return;
+
+    let alpha = 1;
+    if (showFog) {
+      const avgZ = (transformed[ai][2] + transformed[bi][2]) / 2;
+      alpha = Math.max(0.15, 1 - (avgZ + 2) / (camDist + 2));
+    }
+
+    ctx.strokeStyle = edgeCol;
+    ctx.globalAlpha = alpha;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(a[0], a[1]);
+    ctx.lineTo(b[0], b[1]);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  });
+
+  // Vertices
+  projected.forEach((p, i) => {
+    if (!p) return;
+    ctx.beginPath();
+    ctx.arc(p[0], p[1], 3, 0, Math.PI * 2);
+    ctx.fillStyle = edgeCol;
+    ctx.fill();
+
+    if (showLabels) {
+      ctx.fillStyle = '#f0f9ff';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(shapeData.labels[i], p[0] + 8, p[1] - 5);
+    }
+  });
+
+  // Axes
+  const origin = project3D([0, 0, 0]);
+  if (origin) {
+    [[[1.5,0,0],'#ef4444','X'], [[0,1.5,0],'#22c55e','Y'], [[0,0,1.5],'#3b82f6','Z']].forEach(([dir, col, label]) => {
+      let tv = rotateX([...dir], rotX);
+      tv = rotateY(tv, rotY);
+      tv = rotateZ(tv, rotZ);
+      const tp = project3D(tv);
+      if (!tp) return;
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(origin[0], origin[1]);
+      ctx.lineTo(tp[0], tp[1]);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = col;
+      ctx.font = 'bold 10px sans-serif';
+      ctx.fillText(label, tp[0] + 4, tp[1] - 4);
+    });
+  }
+}
+
+// Auto rotation
+function autoLoop() {
+  if (autoRotate) {
+    rotY += 0.01;
+    rotX += 0.003;
+    document.getElementById('sliderRY').value = (rotY * 180 / Math.PI) % 360;
+    document.getElementById('valRY').textContent = Math.round(rotY * 180 / Math.PI) % 360;
+  }
+  draw();
+  animId = requestAnimationFrame(autoLoop);
+}
+autoLoop();
+
+// Sliders
+document.getElementById('sliderRX').addEventListener('input', e => {
+  rotX = e.target.value * Math.PI / 180;
+  document.getElementById('valRX').textContent = e.target.value;
+});
+document.getElementById('sliderRY').addEventListener('input', e => {
+  rotY = e.target.value * Math.PI / 180;
+  document.getElementById('valRY').textContent = e.target.value;
+});
+document.getElementById('sliderRZ').addEventListener('input', e => {
+  rotZ = e.target.value * Math.PI / 180;
+  document.getElementById('valRZ').textContent = e.target.value;
+});
+document.getElementById('sliderFOV').addEventListener('input', e => {
+  fov = parseInt(e.target.value);
+  document.getElementById('valFOV').textContent = fov;
+});
+document.getElementById('sliderDist').addEventListener('input', e => {
+  camDist = parseFloat(e.target.value);
+  document.getElementById('valDist').textContent = camDist.toFixed(1);
+});
+
+document.getElementById('autoRotate').addEventListener('change', e => {
+  autoRotate = e.target.checked;
+});
+
+document.querySelectorAll('.shape-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.shape-btn').forEach(b => b.className = b.className.replace('bg-cyan-900','bg-gray-700'));
+    btn.className = btn.className.replace('bg-gray-700','bg-cyan-900');
+    shape = btn.dataset.shape;
+  });
+});
+
+// Mouse drag
+canvas.addEventListener('mousedown', e => {
+  isDragging = true; lastMX = e.clientX; lastMY = e.clientY;
+  canvas.style.cursor = 'grabbing';
+});
+window.addEventListener('mousemove', e => {
+  if (!isDragging) return;
+  const dx = e.clientX - lastMX, dy = e.clientY - lastMY;
+  rotY += dx * 0.008;
+  rotX += dy * 0.008;
+  lastMX = e.clientX; lastMY = e.clientY;
+  document.getElementById('sliderRX').value = Math.round(rotX * 180 / Math.PI);
+  document.getElementById('sliderRY').value = Math.round(rotY * 180 / Math.PI);
+  document.getElementById('valRX').textContent = Math.round(rotX * 180 / Math.PI);
+  document.getElementById('valRY').textContent = Math.round(rotY * 180 / Math.PI);
+});
+window.addEventListener('mouseup', () => { isDragging = false; canvas.style.cursor = 'grab'; });
+
+// LocalStorage: persist shape and display settings
+function saveCubeSettings() {
+  localStorage.setItem('cube_shape', shape);
+  localStorage.setItem('cube_fov', fov);
+  localStorage.setItem('cube_dist', camDist);
+  localStorage.setItem('cube_edge', document.getElementById('edgeColor').value);
+}
+function loadCubeSettings() {
+  const savedShape = localStorage.getItem('cube_shape');
+  if (savedShape) {
+    shape = savedShape;
+    document.querySelectorAll('.shape-btn').forEach(b => b.className = b.className.replace('bg-cyan-900','bg-gray-700'));
+    const btn = document.querySelector(`[data-shape="${savedShape}"]`);
+    if (btn) btn.className = btn.className.replace('bg-gray-700','bg-cyan-900');
+  }
+  const savedFov = localStorage.getItem('cube_fov');
+  if (savedFov) { fov = parseInt(savedFov); document.getElementById('sliderFOV').value = fov; document.getElementById('valFOV').textContent = fov; }
+  const savedDist = localStorage.getItem('cube_dist');
+  if (savedDist) { camDist = parseFloat(savedDist); document.getElementById('sliderDist').value = camDist; document.getElementById('valDist').textContent = camDist; }
+  const savedEdge = localStorage.getItem('cube_edge');
+  if (savedEdge) document.getElementById('edgeColor').value = savedEdge;
+}
+loadCubeSettings();
+setInterval(saveCubeSettings, 4000);
+</script>
+</body>
+</html>
